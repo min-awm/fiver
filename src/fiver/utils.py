@@ -1,4 +1,5 @@
 import argparse 
+import os
 
 class SubcommandHelpFormatter(argparse.RawDescriptionHelpFormatter):
     def _format_action(self, action):
@@ -6,3 +7,8 @@ class SubcommandHelpFormatter(argparse.RawDescriptionHelpFormatter):
         if action.nargs == argparse.PARSER:
             parts = "\n".join(parts.split("\n")[1:])
         return parts
+
+def path_fiverdb():
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+    path_db = os.path.join(current_directory, "fiverdb.json")
+    return path_db

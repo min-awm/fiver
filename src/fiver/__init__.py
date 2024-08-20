@@ -1,6 +1,10 @@
 import argparse
+
+import questionary
 from .utils import SubcommandHelpFormatter
-import importlib.metadata
+from .version import print_version
+from .server import server_app
+from .client import client_app
 
 
 def cli_entry_point():
@@ -12,11 +16,16 @@ def cli_entry_point():
     connect = subparsers.add_parser('connect', help='connect to server', usage='fiver connect')
     connect.add_argument('connect', nargs='?', type=bool, default=True, help='connect to server')
 
+    server = subparsers.add_parser('server', help='start server', usage='fiver server debug,start,status,stop')
+    server.add_argument('server', nargs='?', type=str, choices=['debug', 'start', 'status', 'stop', ], default="status", help='server manager')
    
     args = parser.parse_args()
     if args.version:
-        print(f"fiver version {importlib.metadata.version("fiver")}")
+        print_version()
     elif getattr(args, 'connect', None):
-        print(args)
+        address = questionary.text("Enter my ip server (Ex: 127.0.0.10:10000):").ask()
+        client_app(address)
+    elif getattr(args, 'server', None):
+        server_app(args.server)
     else:
         parser.print_help()
