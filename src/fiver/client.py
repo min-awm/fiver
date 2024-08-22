@@ -1,23 +1,64 @@
+import sys
 import socket
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.widgets import Header, Footer
+from textual import work
+from textual.worker import Worker, get_current_worker
+
+
+class ClientGui(App):
+    BINDINGS = [
+        Binding(key="q", action="quit_app", description="Quit the app"),
+    ]
+
+    def __init__(self, serverHost):
+        super().__init__()
+        self.serverHost = serverHost
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.title = "Fiver"
+        self.update_data()
+
+    @work(exclusive=True, thread=True)
+    def update_data(self):
+        worker = get_current_worker()
+      
+        print('dd')
+        maxBytes = 4096
+        data = 0
+        while True:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.connect(self.serverHost)
+            except socket.error as e:
+                return print(f"[error] {e}")
+            data += 1
+            sock.send(str(data).encode())
+            modifiedMessage = sock.recv(maxBytes)
+            modifiedMessage = modifiedMessage.decode()
+            print(modifiedMessage)
+            self.title = modifiedMessage
+
+    def action_quit_app(self):
+        sys.exit(0)
+        
+    
 
 def client_app(address):
     try:
         serverIP, serverPort = address.split(':')
     except:
         return print("[error] Ip server is incorrect")
- 
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((serverIP, int(serverPort)))
-    except socket.error as e:
-        return print(f"[error] {e}")
     
+    app = ClientGui((serverIP, int(serverPort)))
+    app.run()
+    
+ 
 
-    maxBytes = 4096
-    data = 'sss'
-    sock.send(data.encode())
-    modifiedMessage = sock.recv(maxBytes)
-    sock.close()
 
-    modifiedMessage = modifiedMessage.decode()
-    print(modifiedMessage)
+    

@@ -3,6 +3,7 @@ import os
 import signal
 import pickledb
 import socket
+import threading
 from .utils import path_fiverdb
 
 
@@ -15,29 +16,52 @@ def check_status():
     except OSError:
         return False
         
+class StartServer:
+    def __init__(self, serverIP, serverPort):
+        self.serverIP = serverIP
+        self.serverPort = serverPort
+        self.connectionSocket = None
+        self.save_pid()
+        self.create_socket()
 
-def start_server(serverIP, serverPort):
-    pid = os.getpid()
+    def save_pid(self):
+        pid = os.getpid()
+        db = pickledb.load(path_fiverdb(), False)
+        db.set('pid', pid)
+        db.dump()
 
-    db = pickledb.load(path_fiverdb(), False)
-    db.set('pid', pid)
-    db.dump()
+    def create_socket(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind((self.serverIP, self.serverPort))
+        sock.listen()
+        while True:
+            connectionSocket, address = sock.accept()         
+            print("[server] TCP connection address:", address)
 
-    maxBytes = 4096
+            self.connectionSocket = connectionSocket
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind((serverIP, serverPort))
-    sock.listen()
-    
-    while True:
-        connectionSocket, address = sock.accept()
-        message = connectionSocket.recv(maxBytes)
-        print("TCP connection address:", address)
+            t = threading.Thread(target=self.receive_messages)
+            t.start()       
+        
+    def receive_messages(self):
+        maxBytes = 4096
+        while True:
+            try:
+                message = self.connectionSocket.recv(maxBytes)
 
-        message = message.decode()
-        modifiedMessage = message.upper()
-        connectionSocket.send(modifiedMessage.encode())
-        pass
+                if not message: 
+                    break
+                message = message.decode()
+                modifiedMessage = message.upper()
+                # print(message)
+                self.connectionSocket.send(modifiedMessage.encode())
+            except:
+               break
+
+           
+        self.connectionSocket.close()
+        print('[server] Close socket')
+  
 
 def stop_server():
     db = pickledb.load(path_fiverdb(), False)
@@ -60,11 +84,11 @@ def server_app(server_arg):
     match server_arg:
         case 'debug':
             print(f"[server] Server is running at {serverIP}:{serverPort}")
-            start_server(serverIP, serverPort)
+            StartServer(serverIP, serverPort)
         case 'start':
             print(f"[server] Server is running at {serverIP}:{serverPort}")
             with daemon.DaemonContext():
-                start_server(serverIP, serverPort)
+                StartServer(serverIP, serverPort)
         case 'status':
             if check_status():
                 print("[status] Fiver is running")

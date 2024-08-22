@@ -17,7 +17,8 @@ requires-python = ">=3.12"
 dependencies = [
     "questionary == 2.0.1",
     "python-daemon == 3.0.1",
-    "pickleDB === 0.9.2",
+    "pickleDB == 0.9.2",
+    "textual == 0.76.0",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
