@@ -1,11 +1,16 @@
-import daemon
 import os
+import time
+import platform
 import signal
 import pickledb
 import socket
 import threading
-from .utils import path_fiverdb
+from .utils import path_fiverdb, is_lunix
+import psutil
+import json
 
+if is_lunix():
+    import daemon
 
 def check_status():
     db = pickledb.load(path_fiverdb(), False)
@@ -40,9 +45,11 @@ class StartServer:
 
             self.connectionSocket = connectionSocket
 
-            t = threading.Thread(target=self.receive_messages)
-            t.start()       
-        
+            t_receive_messages = threading.Thread(target=self.receive_messages)
+            t_receive_messages.start()   
+            t_send_information = threading.Thread(target=self.send_information)
+            t_send_information.start()           
+
     def receive_messages(self):
         maxBytes = 4096
         while True:
@@ -61,6 +68,64 @@ class StartServer:
            
         self.connectionSocket.close()
         print('[server] Close socket')
+
+    def get_disk_info(self):
+        disk_info = []
+        
+        # Iterate over all disk partitions
+        for partition in psutil.disk_partitions():
+            try:
+                # Get disk usage statistics for each partition
+                usage = psutil.disk_usage(partition.mountpoint)
+                
+                # Append the partition information
+                disk_info.append({
+                    'device': partition.device,
+                    'fstype': partition.fstype,
+                    'total': usage.total / (1024 ** 3),  # Convert bytes to GB
+                    'used': usage.used / (1024 ** 3),    # Convert bytes to GB
+                    'free': usage.free / (1024 ** 3),    # Convert bytes to GB
+                    'percent_used': usage.percent
+                })
+           
+            except:
+                pass
+        
+        return disk_info
+
+    def get_information(self):
+        kernel = platform.release()
+        if not kernel:
+            kernel = platform.version()
+
+        virtual_memory = psutil.virtual_memory()
+        net_io = psutil.net_io_counters()
+
+        return {"information_data": {
+            "system": platform.system(),
+            "node": platform.node(),
+            "cpu":platform.processor(),
+            "kernel": kernel,
+            "architecture": platform.machine(),
+            "num_logical_cores": psutil.cpu_count(),
+            "num_physical_cores": psutil.cpu_count(logical=False),
+            "total_memory": f"{virtual_memory.total / (1024 ** 3):.2f} GB",
+            "available_memory": f"{virtual_memory.available / (1024 ** 3):.2f} GB",
+            "used_memory": f"{virtual_memory.used / (1024 ** 3):.2f} GB",
+            "percent_used_menory": f"{virtual_memory.used / virtual_memory.total * 100}",
+            "net_stats": psutil.net_if_stats(),
+            "bytes_sent" : f"{net_io.bytes_sent / (1024 ** 2):.2f} MB",
+            "bytes_received": f"{net_io.bytes_recv / (1024 ** 2):.2f} MB",
+            "disk_info": self.get_disk_info(),
+        }}
+
+    def send_information(self):
+        while True:
+            try:
+                self.connectionSocket.send(json.dumps(self.get_information()).encode())
+                time.sleep(1)
+            except:
+                pass
   
 
 def stop_server():
@@ -87,7 +152,10 @@ def server_app(server_arg):
             StartServer(serverIP, serverPort)
         case 'start':
             print(f"[server] Server is running at {serverIP}:{serverPort}")
-            with daemon.DaemonContext():
+            if is_lunix():
+                with daemon.DaemonContext():
+                    StartServer(serverIP, serverPort)
+            else:
                 StartServer(serverIP, serverPort)
         case 'status':
             if check_status():
