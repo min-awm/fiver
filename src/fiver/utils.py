@@ -1,6 +1,4 @@
-import argparse 
-import os
-import platform
+import argparse, os, platform
 
 class SubcommandHelpFormatter(argparse.RawDescriptionHelpFormatter):
     def _format_action(self, action):

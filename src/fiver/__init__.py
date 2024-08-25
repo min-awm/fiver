@@ -23,9 +23,8 @@ def cli_entry_point():
     if args.version:
         print_version()
     elif getattr(args, 'connect', None):
-        # address = questionary.text("Enter my ip server (Ex: 127.0.0.10:10000):").ask()
-        # client_app(address)
-        client_app("127.0.0.10:10000")
+        address = questionary.text("Enter my ip server (Ex: 127.0.0.10:10000):").ask()
+        client_app(address)
     elif getattr(args, 'server', None):
         server_app(args.server)
     else:

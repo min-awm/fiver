@@ -1,25 +1,57 @@
-import sys
-import socket
-import json
-from textual.app import App, ComposeResult
+import sys, socket, json
+from textual.app import App, ComposeResult, RenderResult
 from textual.binding import Binding
 from textual.widget import Widget
 from textual.widgets import Header, Footer, Static, ProgressBar, Input, Button, Log
 from textual import work
 from textual.containers import Horizontal, Container, HorizontalScroll, VerticalScroll
-from textual.worker import Worker, get_current_worker
 from textual.reactive import reactive
 
 
 class Info(Widget):
-    a = reactive("0")  
+    information_data = reactive("")  
 
-  
-    def render(self):
-        return Horizontal(
-            Static("OS:", classes="info_item_name"),
-            Static(self.a, classes="info_item_vaule")
-        )
+    def __init__(self, key_info):
+        super().__init__()
+        self.key_info = key_info
+
+    def render(self) -> str:
+        try:
+            information_data_json = json.loads(self.information_data)
+        except:
+            return ""
+        
+        match self.key_info:
+            case "system":
+                return information_data_json["system"]
+            case "node":
+                return information_data_json["node"]
+            case "kernel":
+                return information_data_json["kernel"]
+            case "cpu":
+                return information_data_json["cpu"]
+            case "architecture":
+                return information_data_json["architecture"]
+            case "cores":
+                return f"Logical: {information_data_json["num_logical_cores"]} - Physical: {information_data_json["num_physical_cores"]}"
+            case "ram":
+                return information_data_json["total_memory"]
+            case "disk_total":
+                return information_data_json["disk_total"]
+            case "disk":
+                disk_data = "\nDisk:\n"
+                for disk in information_data_json["disk_info"]:
+                    disk_data += f" {disk["device"]}: {disk["used"]:.2f}/{disk["total"]:.2f} GB ({disk["percent_used"]}%)\n"
+                return disk_data
+            case "download_speed":
+                return f" Receiving: {information_data_json["download_speed"]}"
+            case "upload_speed":
+                return f" Sending: {information_data_json["upload_speed"]}"
+            case "bytes_received":
+                return f" Total Received: {information_data_json["bytes_received"]}"
+            case "bytes_sent":
+                return f" Total Sent: {information_data_json["bytes_sent"]}"
+        return ""
 
 class ClientGui(App):
     CSS = """
@@ -38,16 +70,28 @@ class ClientGui(App):
             border: solid white;
             padding: 1 2;
             margin-left: 1;
-            height: 10;
-            width: 40;
+            height: 20;
+            width: 60;
+        }
+
+        .info_horizontal {
+            height: 2;
         }
 
         .info_item_name {
-            width: 10;
+            width: 15;
         }
 
         .info_item_value {
             width: 30;
+        }
+
+        .network_horizontal {
+            height: 1;
+        }
+
+        .network_item {
+            width: 50%;
         }
 
         .send_file {
@@ -72,6 +116,7 @@ class ClientGui(App):
 
         .terminal_note {
             margin-bottom: 1;
+            margin-left: 1;
         }
 
         .terminal_log {
@@ -95,45 +140,88 @@ class ClientGui(App):
         info_item_one = Container(
             Horizontal(
                 Static("OS:", classes="info_item_name"),
-                Static("dd", classes="info_item_vaule")
+                Container(Info("system"), classes="info_item_vaule"),
+                classes="info_horizontal",
             ),
-            Info(),
-            Static("OS: Ubuntu 22.04 LTS"),
-            Static("Kernel: 5.15.0-58-generic"),
-            Static("Architecture: x86_64"),
-            Static("Uptime: 12 days, 4 hours"),
-            Static("CPU: Intel Core i7-10750H"),
-            Static("RAM: 32 GB"),
-            Static("Storage: 1 TB SSD"),
+            Horizontal(
+                Static("Node:", classes="info_item_name"),
+                Container(Info("node"), classes="info_item_vaule"),
+                classes="info_horizontal",
+            ),
+            Horizontal(
+                Static("Kernel:", classes="info_item_name"),
+                Container(Info("kernel"), classes="info_item_vaule"),
+                classes="info_horizontal",
+            ),
+            Horizontal(
+                Static("Architecture:", classes="info_item_name"),
+                Container(Info("architecture"), classes="info_item_vaule"),
+                classes="info_horizontal",
+            ),
+            Horizontal(
+                Static("Cpu:", classes="info_item_name"),
+                Container(Info("cpu"), classes="info_item_vaule"),
+                classes="info_horizontal",
+            ),
+            Horizontal(
+                Static("Cores:", classes="info_item_name"),
+                Container(Info("cores"), classes="info_item_vaule"),
+                classes="info_horizontal",
+            ),
+            Horizontal(
+                Static("Ram:", classes="info_item_name"),
+                Container(Info("ram"), classes="info_item_vaule"),
+                classes="info_horizontal",
+            ),
+            Horizontal(
+                Static("Storage:", classes="info_item_name"),
+                Container(Info("disk_total"), classes="info_item_vaule"),
+                classes="info_horizontal",
+            ),
             classes="info_item",
         )
         info_item_one.border_title = "System Information"
 
         info_item_two = Container(
-            Static("CPU Usage:"),
-            Static("Memory Usage:"),
-            Static("Disk Usage:"),
             Horizontal(
-                Static("Network Usage:", classes="a2"),
-                ProgressBar(show_eta=False, show_percentage=False, classes="a1"),  # Adjust value as 
-                classes="a3",
-            ),    
+                Static("CPU:", classes="info_item_name"),
+                ProgressBar(show_eta=False, classes="info_item_vaule", id="cpu_percent"),
+                classes="info_horizontal",
+            ),
+            Horizontal(
+                Static("Ram:", classes="info_item_name"),
+                ProgressBar(show_eta=False, classes="info_item_vaule", id="percent_used_menory"),
+                classes="info_horizontal",
+            ),
+           
+            Static("Network:"),
+            Horizontal(
+                Container(Info("download_speed"), classes="network_item"),
+                Container(Info("upload_speed"), classes="network_item"),
+                classes="network_horizontal",
+            ),
+            Horizontal(
+                Container(Info("bytes_received"), classes="network_item"),
+                Container(Info("bytes_sent"), classes="network_item"),
+                classes="network_horizontal",
+            ),
+            Info("disk"),
             classes="info_item",             
         )
         info_item_two.border_title = "Resource Utilization"
         
-        send_file = Container(
-            Input(placeholder="File path to send"),
-            Input(placeholder="Folder path to receive"),
-            Static("[bold red][/]", id="send_file_error"),
-            Static("[bold green][/]", id="send_file_success"),
-            Button("Send", variant="primary", classes="send_file_button"),
-            classes="send_file"
-        )
-        send_file.border_title = "Send file"
+        # send_file = Container(
+        #     Input(placeholder="File path to send", id="file_path_send"),
+        #     Input(placeholder="Folder path to receive"),
+        #     Static("[bold red]ddd[/]", id="send_file_error"),
+        #     Static("[bold green]ddd[/]", id="send_file_success"),
+        #     Button("Send", variant="primary", classes="send_file_button", id="send_file"),
+        #     classes="send_file"
+        # )
+        # send_file.border_title = "Send file"
 
         terminal = Container(
-            Input(placeholder="Enter command to execute"),
+            Input(placeholder="Enter command to execute", id="terminal_input"),
             Static("Enter to send", classes="terminal_note"),
             Log(auto_scroll=True, classes="terminal_log"),
             classes="terminal"
@@ -147,7 +235,6 @@ class ClientGui(App):
                 info_item_two,
                 classes="info_area",
             ),
-            send_file,
             terminal,
         )
         yield Footer()
@@ -155,30 +242,75 @@ class ClientGui(App):
     def on_mount(self) -> None:
         self.title = "Fiver"
         self.update_data()
+
+    # def on_button_pressed(self, event: Button.Pressed) -> None:
+    #     """Event handler called when a button is pressed."""
+    #     log = self.query_one(Log)
+    #     if event.button.id == "send_file":
+    #         file_path_send = self.query_one("#file_path_send").value
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Called as the user types."""
         log = self.query_one(Log)
-        log.write_line("sss")
+        if event.input.id == "terminal_input":
+            data = self.query_one("#terminal_input").value
+
+            if data == "clear":
+                log.clear()
+                self.query_one("#terminal_input").clear()
+                return
+
+            data_send = {
+                "key": "terminal",
+                "data": data,
+            }
+            self.sock.send(json.dumps(data_send).encode())
+
+            log.write_line(f"You: {data}")
+            self.query_one("#terminal_input").clear()
+            
 
     @work(exclusive=True, thread=True)
-    def update_data(self):
-        worker = get_current_worker()
-        
+    def update_data(self):        
         maxBytes = 4096
-        data = 0
+        log = self.query_one(Log)
+
         while True:
             if self.quit:
                 break
-            data += 1
-            self.sock.send(str(data).encode())
-            modifiedMessage = self.sock.recv(maxBytes)
-            # modifiedMessage = json.loads(modifiedMessage.decode())
-            modifiedMessage = modifiedMessage.decode()
-            self.b = str(data)
-            print(modifiedMessage)
-           
+
+            message_receive = self.sock.recv(maxBytes)
+
+            try:
+                message_receive = json.loads(message_receive.decode())
+            except:
+                continue
+            
+            if message_receive["key"] == "information":
+                for widget in self.query(Info):
+                    widget.information_data = json.dumps(message_receive["value"])
+                
+                self.query_one("#cpu_percent").update(
+                    total = 100,
+                    progress = message_receive["value"]["cpu_percent"],
+                )
+
+                self.query_one("#percent_used_menory").update(
+                    total = 100,
+                    progress = message_receive["value"]["percent_used_menory"],
+                )
+
+                self.query_one("#percent_used_menory").update(
+                    total = 100,
+                    progress = message_receive["value"]["percent_used_menory"],
+                )
+            elif message_receive["key"] == "terminal":
+                log.write_line(f"{message_receive["data"]}")
+            
 
     def action_quit_app(self):
         self.quit = True
-        sys.exit(0)
+        sys.exit(1)
         
     
 

@@ -1,13 +1,7 @@
-import os
-import time
-import platform
-import signal
+import os, subprocess, time, platform, signal, threading, json, socket, re
 import pickledb
-import socket
-import threading
 from .utils import path_fiverdb, is_lunix
 import psutil
-import json
 
 if is_lunix():
     import daemon
@@ -58,12 +52,24 @@ class StartServer:
 
                 if not message: 
                     break
-                message = message.decode()
-                modifiedMessage = message.upper()
-                # print(message)
-                self.connectionSocket.send(modifiedMessage.encode())
-            except:
-               break
+
+                message_receive = json.loads(message.decode())
+
+                if message_receive["key"] == "terminal":
+                    print(f"[terminal] You: {message_receive["data"]}")
+                    process = subprocess.Popen(message_receive["data"], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    stdout, stderr = process.communicate()
+                    
+                    data_terminal = {
+                        "key": "terminal",
+                        "data": (stdout + stderr).decode('utf-8', errors='ignore')
+                    }
+
+                    print((stdout + stderr).decode('utf-8', errors='ignore'))
+                    self.connectionSocket.send(json.dumps(data_terminal).encode())
+            except Exception as e:
+                print(e)
+                break
 
            
         self.connectionSocket.close()
@@ -71,7 +77,8 @@ class StartServer:
 
     def get_disk_info(self):
         disk_info = []
-        
+        disk_total = 0
+
         # Iterate over all disk partitions
         for partition in psutil.disk_partitions():
             try:
@@ -87,11 +94,48 @@ class StartServer:
                     'free': usage.free / (1024 ** 3),    # Convert bytes to GB
                     'percent_used': usage.percent
                 })
-           
+
+                disk_total += usage.total           
             except:
                 pass
         
-        return disk_info
+        return disk_info, disk_total
+    
+    def get_processor_name(self):
+        if platform.system() == "Windows":
+            return platform.processor()
+        elif platform.system() == "Darwin":
+            os.environ['PATH'] = os.environ['PATH'] + os.pathsep + '/usr/sbin'
+            command ="sysctl -n machdep.cpu.brand_string"
+            return subprocess.check_output(command).strip()
+        elif platform.system() == "Linux":
+            command = "cat /proc/cpuinfo"
+            all_info = subprocess.check_output(command, shell=True).decode().strip()
+            for line in all_info.split("\n"):
+                if "model name" in line:
+                    return re.sub( ".*model name.*:", "", line,1).strip()
+        return ""
+
+    def get_network_speed(self, interval=1):
+        # Lấy số byte đã nhận và gửi tại thời điểm ban đầu
+        net_io_start = psutil.net_io_counters()
+        bytes_received_start = net_io_start.bytes_recv
+        bytes_sent_start = net_io_start.bytes_sent
+
+        # Chờ một khoảng thời gian nhất định (interval)
+        time.sleep(interval)
+
+        # Lấy số byte đã nhận và gửi tại thời điểm sau khoảng thời gian đó
+        net_io_end = psutil.net_io_counters()
+        bytes_received_end = net_io_end.bytes_recv
+        bytes_sent_end = net_io_end.bytes_sent
+
+        # Tính toán sự khác biệt về số byte đã nhận và gửi trong khoảng thời gian đó
+        download_speed = (bytes_received_end - bytes_received_start) / interval  # Tốc độ tải xuống (bytes per second)
+        upload_speed = (bytes_sent_end - bytes_sent_start) / interval  # Tốc độ tải lên (bytes per second)
+    
+        return download_speed, upload_speed
+
 
     def get_information(self):
         kernel = platform.release()
@@ -101,31 +145,41 @@ class StartServer:
         virtual_memory = psutil.virtual_memory()
         net_io = psutil.net_io_counters()
 
-        return {"information_data": {
+        return {
             "system": platform.system(),
             "node": platform.node(),
-            "cpu":platform.processor(),
+            "cpu":self.get_processor_name(),
             "kernel": kernel,
             "architecture": platform.machine(),
             "num_logical_cores": psutil.cpu_count(),
             "num_physical_cores": psutil.cpu_count(logical=False),
             "total_memory": f"{virtual_memory.total / (1024 ** 3):.2f} GB",
-            "available_memory": f"{virtual_memory.available / (1024 ** 3):.2f} GB",
-            "used_memory": f"{virtual_memory.used / (1024 ** 3):.2f} GB",
-            "percent_used_menory": f"{virtual_memory.used / virtual_memory.total * 100}",
-            "net_stats": psutil.net_if_stats(),
-            "bytes_sent" : f"{net_io.bytes_sent / (1024 ** 2):.2f} MB",
+            "percent_used_menory": virtual_memory.used / virtual_memory.total * 100,
+            "download_speed":f"{self.get_network_speed()[0] / (1024 ** 2):.2f} MB/s",
+            "upload_speed":  f"{self.get_network_speed()[1] / (1024 ** 2):.2f} MB/s",
+            "bytes_sent": f"{net_io.bytes_sent / (1024 ** 2):.2f} MB",
             "bytes_received": f"{net_io.bytes_recv / (1024 ** 2):.2f} MB",
-            "disk_info": self.get_disk_info(),
-        }}
+            "disk_info": self.get_disk_info()[0],
+            "disk_total": f"{self.get_disk_info()[1] / (1024 ** 3):.2f} GB",
+            "cpu_percent": psutil.cpu_percent(interval=1),
+        }
 
     def send_information(self):
         while True:
             try:
-                self.connectionSocket.send(json.dumps(self.get_information()).encode())
+                data_send = {
+                    "key": "information",
+                    "value": self.get_information(),
+                }
+                # print(data_send)
+                self.connectionSocket.send(json.dumps(data_send).encode())
                 time.sleep(1)
-            except:
+            except Exception as e:
+                # print(e)
                 pass
+    
+    def save_file(self):
+        pass
   
 
 def stop_server():
@@ -143,7 +197,7 @@ def stop_server():
 
 def server_app(server_arg):
     # server_arg: ['debug', 'start', 'status', 'stop', ]
-    serverIP = "127.0.0.10"
+    serverIP = socket.gethostbyname(socket.gethostname())
     serverPort = 10000
 
     match server_arg:
